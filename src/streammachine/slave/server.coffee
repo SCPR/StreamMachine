@@ -90,10 +90,10 @@ module.exports = class Server extends require('events').EventEmitter
         # -- Stream Routing -- #
         
         # does the request match one of our streams?
-        if m = ///^\/(#{_u(@core.streams).keys().join("|")})(?:\.(mp3|pls))?///.exec req.url     
+        if m = ///^\/(#{_u(@core.streams).keys().join("|")})(?:\.(mp3|pls|m3u8))?///.exec req.url     
             res.header("X-Powered-By","StreamMachine")
         
-            console.log "match is ", m
+            #console.log "match is ", m
             stream = @core.streams[ m[1] ]
         
             # fend off any HEAD requests
@@ -107,7 +107,7 @@ module.exports = class Server extends require('events').EventEmitter
         
             # -- Handle playlist request -- #
             
-            console.log "format is ", m[2]
+            #console.log "format is ", m[2]
         
             if m[2] && m[2] == "pls"
                 host = req.headers?.host || stream.options.host
@@ -117,6 +117,12 @@ module.exports = class Server extends require('events').EventEmitter
                     "connection":   "close"
                                     
                 res.end("[playlist]\nNumberOfEntries=1\nFile1=http://#{host}/#{stream.key}/\n")
+                return true
+                
+            # -- HTTP Live Streaming Playlist -- #
+            
+            if m[2] && m[2] == "m3u8"
+                new @core.Outputs.live_streaming.Index stream, req, res, host:(req.headers?.host || stream.options.host)
                 return true
         
             # -- Stream match! -- #
@@ -128,6 +134,10 @@ module.exports = class Server extends require('events').EventEmitter
             else if req.param("pump")
                 # pump listener pushes from the buffer as fast as possible
                 new @core.Outputs.pumper stream, req, res
+                
+            else if req.param("ts")
+                # return a LiveStreaming ts chunk
+                new @core.Outputs.live_streaming stream, req, res, ts:req.param("ts")
                 
             else
                 # normal live stream (with or without shoutcast)

@@ -32,7 +32,7 @@ module.exports = class Shoutcast
                 if data.StreamTitle
                     @res.queueMetadata data
 
-            @dataFunc = (chunk) => @res.write(chunk)
+            @dataFunc = (chunk) => @res.write(chunk.data)
                 
             # -- send a preroll if we have one -- #
         

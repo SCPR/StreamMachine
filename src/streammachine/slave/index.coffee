@@ -12,10 +12,11 @@ module.exports = class Slave extends require("events").EventEmitter
         max_zombie_life:    1000 * 60 * 60
         
     Outputs:
-        pumper:     require("../outputs/pumper")
-        shoutcast:  require("../outputs/shoutcast")
-        mp3:        require("../outputs/livemp3")
-        sockets:    require("../outputs/sockets")
+        pumper:         require("../outputs/pumper")
+        shoutcast:      require("../outputs/shoutcast")
+        mp3:            require("../outputs/livemp3")
+        sockets:        require("../outputs/sockets")
+        live_streaming: require("../outputs/live_streaming")
         
     constructor: (opts) ->
         @options = _u.defaults opts||{}, @DefaultOptions

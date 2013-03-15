@@ -7,11 +7,11 @@ module.exports = class Pumper
         @stream = stream                
         
         # figure out what we're pulling
-        playHead = @stream.rewind.checkOffset req.param("from") || req.param("pump")
+        playHead = @stream.checkOffset req.param("from") || req.param("pump")
         console.log "requested offset of #{ req.query.from || req.query.pump } seconds. providing #{playHead} chunks."
         
         # grab our pump buffer
-        pumpBuf = @stream.rewind.pumpFrom playHead, req.param("pump")
+        pumpBuf = @stream.pumpFrom playHead, req.param("pump")
                 
         secs = playHead / @stream.rewind.framesPerSec
         @stream.log.debug output:"pump", seconds:secs, bytes:pumpBuf.length, "Pumping"

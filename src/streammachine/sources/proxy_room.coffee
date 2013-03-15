@@ -112,7 +112,7 @@ module.exports = class ProxyRoom extends require("./base")
                     @_chunk_queue.length = 0
                 
                     # emit new buffer
-                    @emit "data", buf
+                    @emit "data", data:buf, ts:Number(new Date())
         
         # we need to grab one frame to compute framesPerSec
         @parser.on "header", (data,header) =>

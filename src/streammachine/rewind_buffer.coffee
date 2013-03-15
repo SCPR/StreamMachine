@@ -9,9 +9,6 @@ module.exports = class RewindBuffer extends require("events").EventEmitter
         @_rmax = null
         @_rburst = null
                         
-        # each listener should be an object that defines obj._offset and 
-        # obj.writeFrame. We implement RewindBuffer.Listener, but other 
-        # classes can work with those pieces
         @_rlisteners = []
         
         # create buffer as an array
@@ -19,14 +16,17 @@ module.exports = class RewindBuffer extends require("events").EventEmitter
                 
         # -- set up header and frame functions -- #
         
-        @_rdataFunc = (chunk) =>
-            #@log.debug "Rewind data func", length:@_rbuffer.length
+        @_rdataFunc = (obj) =>
+            chunk   = obj.data
+            ts      = obj.ts
+            i       = obj.i
+                        
             # if we're at max length, shift off a chunk (or more, if needed)
             while @_rbuffer.length > @_rmax
                 @_rbuffer.shift()
 
             # push the chunk on the buffer
-            @_rbuffer.push chunk
+            @_rbuffer.push obj
 
             # loop through all connected listeners and pass the frame buffer at 
             # their offset.
@@ -136,15 +136,15 @@ module.exports = class RewindBuffer extends require("events").EventEmitter
         bl = @_rbuffer.length
         
         pumpLen = 0
-        pumpLen += @_rbuffer[ bl - 1 - (offset - i) ].length for i in [1..length]
+        pumpLen += @_rbuffer[ bl - 1 - (offset - i) ].data.length for i in [1..length]
         
-        @log.debug "creating buffer of ", pumpLen:pumpLen, offset:offset, length:length, bl:bl
+        #@log.debug "creating buffer of ", pumpLen:pumpLen, offset:offset, length:length, bl:bl
         
         pumpBuf = new Buffer pumpLen
 
         index = 0
         for i in [1..length]
-            buf = @_rbuffer[ bl - 1 - (offset - i) ]
+            buf = @_rbuffer[ bl - 1 - (offset - i) ].data
             buf.copy pumpBuf, index, 0, buf.length
             index += buf.length
             

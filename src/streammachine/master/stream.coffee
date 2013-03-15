@@ -21,12 +21,18 @@ module.exports = class Stream extends require('events').EventEmitter
         
         @STATUS = "Initializing"
         
+        @i = 0
+        
         # set up a rewind buffer
         #@rewind = new Rewind @, @opts.rewind
         
         @metaFunc = (meta) => @emit "metadata", meta
-        @dataFunc = (data) => @emit "data", data
         @headFunc = (head) => @emit "header", head
+
+        # merge in an incrementing value per-chunk
+        @dataFunc = (data) => 
+            @emit "data", _u.extend { i:@i }, data
+            @i += 1
         
         # -- Hardcoded Source -- #
         
