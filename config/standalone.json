@@ -13,6 +13,15 @@
       "metaTitle":        "Testing",
       "host":             "localhost",
       "source_password":  "testing"
+    },
+    "iphone": {
+      "key":              "iphone",
+      "root_route":       false,
+      "format":           "aac",
+      "seconds":          3600,
+      "metaTitle":        "Testing",
+      "host":             "localhost",
+      "source_password":  "testing"
     }
   },
   "users": {
