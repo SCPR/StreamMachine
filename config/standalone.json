@@ -14,8 +14,8 @@
       "host":             "localhost",
       "source_password":  "testing"
     },
-    "iphone": {
-      "key":              "iphone",
+    "aac": {
+      "key":              "aac",
       "root_route":       false,
       "format":           "aac",
       "seconds":          3600,
