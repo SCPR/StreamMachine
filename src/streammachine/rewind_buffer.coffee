@@ -273,7 +273,7 @@ module.exports = class RewindBuffer extends require("events").EventEmitter
         
         buffers = []
         
-        if length > 0        
+        if length > 0
             for i in [1..length]
                 b = @_rbuffer[ bl - 1 - (offset - i) ]
                 pumpLen     += b.data.length
