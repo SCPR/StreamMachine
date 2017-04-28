@@ -1,10 +1,8 @@
-===
-     ,---.  ,--.                             ,--.   ,--.           ,--.    ,--.              
-    '   .-,-'  '-,--.--.,---. ,--,--,--,--,--|   `.'   |,--,--.,---|  ,---.`--,--,--, ,---.  
-    `.  `-'-.  .-|  .--| .-. ' ,-.  |        |  |'.'|  ' ,-.  | .--|  .-.  ,--|      | .-. : 
-    .-'    ||  | |  |  \   --\ '-'  |  |  |  |  |   |  \ '-'  \ `--|  | |  |  |  ||  \   --. 
-    `-----' `--' `--'   `----'`--`--`--`--`--`--'   `--'`--`--'`---`--' `--`--`--''--'`----' 
-===
+# DEPRECATED
+
+If you are in here because you're trying to understand KPCC's instance of StreamMachine, you're in the wrong place. This repo no longer is what's running in prod.
+
+##
 
 StreamMachine is an open-source streaming audio server aimed at pushing 
 innovation for radio stations that have spent too many years running old 
