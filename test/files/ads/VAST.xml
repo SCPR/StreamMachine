@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<VAST version="2.0.1">
+    <Ad id="7471243">
+        <InLine>
+            <AdSystem version="3.0">ADTECH</AdSystem>
+            <AdTitle/>
+            <Impression id="ImpressionConfirmationURL"><![CDATA[IMPRESSION]]></Impression>
+            <Creatives>
+                <Creative sequence="1">
+                    <Linear>
+                        <Duration>00:00:05</Duration>
+                        <MediaFiles>
+                            <MediaFile delivery="progressive" type="audio/mpeg" width="0" height="0"><![CDATA[AUDIO]]></MediaFile>
+                        </MediaFiles>
+                    </Linear>
+                </Creative>
+                <Creative sequence="1">
+                    <CompanionAds>
+                        <Companion height="250" width="300">
+                            <StaticResource creativeType="image/jpeg"><![CDATA[IMAGE]]></StaticResource>
+                            <CompanionClickThrough><![CDATA[CLICKTHROUGH]]></CompanionClickThrough>
+                            <TrackingEvents>
+                                <Tracking event="creativeView"><![CDATA[CREATIVE_VIEW]]></Tracking>
+                            </TrackingEvents>
+                            <AltText/>
+                        </Companion>
+                        <Companion height="250" width="300">
+                            <HTMLResource>&lt;img src="CREATIVE_VIEW" style="display: none;"/&gt;&lt;a target="_blank" href="CLICKTHROUGH"&gt;&lt;img alt="" border="0" src="IMAGE"/&gt;&lt;/a&gt;</HTMLResource>
+                        </Companion>
+                    </CompanionAds>
+                </Creative>
+            </Creatives>
+        </InLine>
+    </Ad>
+</VAST>

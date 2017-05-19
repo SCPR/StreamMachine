@@ -1,2 +1,1 @@
-require("coffee-script")
-require("./streamer")
+require("./js/streamer")

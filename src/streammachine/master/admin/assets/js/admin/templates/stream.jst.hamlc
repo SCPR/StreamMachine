@@ -1,6 +1,0 @@
-%td
-  = @stream
-%td
-  = @listeners
-%td
-  = @sources[0]?.source

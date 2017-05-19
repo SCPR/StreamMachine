@@ -1,6 +1,7 @@
 {
-	"port":			    8001,
-	"source_port":	8002,
+	"port":         8001,
+	"source_port":  8002,
+  "api_port":     8003,
 	"log": {
 		"stdout":     true
   },
@@ -14,8 +15,5 @@
       "host":             "localhost",
       "source_password":  "testing"
     }
-  },
-  "users": {
-    "admin": "sha1$4910774a$1$d9ad69e6b7be6dd2fd4767dda957ed47a582c7e3"
   }
 }

@@ -4,4 +4,4 @@ var path = require('path');
 var fs   = require('fs');
 var src  = path.dirname(fs.realpathSync(__filename));
 
-require(src + "/index.js")
+require(src + "/js/streamer.js")

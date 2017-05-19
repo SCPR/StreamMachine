@@ -1,4 +1,5 @@
 {
+  "mode":         "master",
 	"source_port":	8016,
 	"master": {
 		"port":       8020,

@@ -1,55 +1,63 @@
 nconf       = require "nconf"
-_u          = require "underscore"
+_           = require "underscore"
 nodemailer  = require "nodemailer"
 pagerduty   = require "pagerduty"
 
 
-ALERT_TYPES = 
+ALERT_TYPES =
     sourceless:
         description:    "A monitored stream has lost its only source connection."
         wait_for:       30
-        
-    disconnected:
+
+    slave_disconnected:
         description:    "A slave server has lost its connection to the master server."
         wait_for:       30
 
-# Alerts module is responsible for understanding how long we should wait 
-# before saying something about alert conditions.  Code calls the alert 
-# class with a code, a key and a state.  
+    slave_unresponsive:
+        description:    "A slave server has stopped responding to our status queries."
+        wait_for:       30
+
+    slave_unsynced:
+        description:    "A slave server is out of sync with master."
+        wait_for:       30
+
+# Alerts module is responsible for understanding how long we should wait
+# before saying something about alert conditions.  Code calls the alert
+# class with a code, a key and a state.
 
 module.exports = class Alerts extends require("events").EventEmitter
     constructor: (@opts) ->
         @logger = @opts.logger
-        
+
         @email      = new Alerts.Email @, nconf.get("alerts:email") if nconf.get("alerts:email")
         @pagerduty  = new Alerts.PagerDuty @, nconf.get("alerts:pagerduty") if nconf.get("alerts:pagerduty")
 
         @_states = {}
-        
+
     #----------
-    
+
     update: (code,key,active) ->
         # make sure we know what this is...
         if !ALERT_TYPES[code]
             console.log "Unknown alert type sent: #{code} / #{key}"
             return false
-            
+
         if !@_states[ code ]
             @_states[ code ] = {}
-            
+
         # are we setting or unsetting?
         if active
             if s = @_states[ code ][ key ]
                 # update our timestamp
                 s.last_seen_at = new Date
-                
+
                 # make sure there isn't an all-clear waiting to fire
                 clearTimeout s.c_timeout if s.c_timeout
-                delete s.c_timeout              
-                
+                delete s.c_timeout
+
             else
                 # setting for the first time...
-                s = @_states[ code ][ key ] = 
+                s = @_states[ code ][ key ] =
                     code:           code
                     key:            key
                     triggered_at:   new Date
@@ -59,19 +67,19 @@ module.exports = class Alerts extends require("events").EventEmitter
                     c_timeout:      null
 
             # -- should we set a timeout for triggering an alarm? -- #
-            
+
             if !s.alert_sent && !s.a_timeout
                 s.a_timeout = setTimeout =>
                     @_fireAlert(s)
                 , ALERT_TYPES[ code ].wait_for * 1000
-                
+
         else
             # clear an alert state if it is set
             if s = @_states[ code ][ key ]
                 # -- is there an alert timeout set? -- #
                 clearTimeout s.a_timeout if s.a_timeout
-                delete s.a_timeout              
-                
+                delete s.a_timeout
+
                 if s.alert_sent && !s.c_timeout
                     # we had sent an alert, so send a note that the alert has cleared
                     s.c_timeout = setTimeout =>
@@ -81,96 +89,96 @@ module.exports = class Alerts extends require("events").EventEmitter
                     # no harm, no foul
             else
                 # they've always been good...
-    
+
     #----------
-            
-    _fireAlert: (obj) ->        
-        alert = 
+
+    _fireAlert: (obj) ->
+        alert =
             code:           obj.code
             key:            obj.key
             triggered_at:   obj.triggered_at
             description:    ALERT_TYPES[ obj.code ].description
-        
+
         @logger.alert "Alert: #{obj.key} : #{ alert.description }", alert
         @emit "alert", alert
-        
+
         # mark our alert as sent
         obj.alert_sent = true
-        
+
     #----------
-        
+
     _fireAllClear: (obj) ->
-        alert = 
+        alert =
             code:           obj.code
             key:            obj.key
             triggered_at:   obj.triggered_at
             last_seen_at:   obj.last_seen_at
             description:    ALERT_TYPES[ obj.code ].description
-        
+
         @logger.alert "Alert Cleared: #{obj.key} : #{ alert.description }", alert
         @emit "alert_cleared", alert
-        
-        # we need to delete the alert now that it has been cleared. If the 
+
+        # we need to delete the alert now that it has been cleared. If the
         # condition returns, it will be as a new event
         delete @_states[ obj.code ][ obj.key ]
-    
+
     #----------
-        
+
     class @Email
         constructor: (@alerts,@opts) ->
             # -- set up the transport -- #
-            
+
             @transport = nodemailer.createTransport(@opts.mailer_type,@opts.mailer_options)
-            
+
             # -- register our listener -- #
-            
+
             @alerts.on "alert",         (msg) => @_sendAlert(msg)
             @alerts.on "alert_cleared", (msg) => @_sendAllClear(msg)
-        
+
         #----------
-            
+
         _sendAlert: (msg) ->
-            email = _u.extend {}, @opts.email_options, 
+            email = _.extend {}, @opts.email_options,
                 subject: "[StreamMachine/#{msg.key}] #{msg.code} Alert"
                 generateTextFromHTML: true
                 html:   """
                         <p>StreamMachine has detected an alert condition of <b>#{msg.code}</b> for <b>#{msg.key}</b>.</p>
-                        
+
                         <p>#{msg.description}</p>
-                        
+
                         <p>Condition was first detected at <b>#{msg.triggered_at}</b>.</p>
                         """
-                        
+
             @transport.sendMail email, (err,resp) =>
                 if err
                     @alerts.logger.error "Error sending alert email: #{err}", error:err
                     return false
-                    
+
                 @alerts.logger.debug "Alert email sent to #{email.to}.", code:msg.code, key:msg.key
-        
+
         #----------
-            
+
         _sendAllClear: (msg) ->
-            email = _u.extend {}, @opts.email_options, 
+            email = _.extend {}, @opts.email_options,
                 subject: "[StreamMachine/#{msg.key}] #{msg.code} Cleared"
                 generateTextFromHTML: true
                 html:   """
                         <p>StreamMachine has cleared an alert condition of <b>#{msg.code}</b> for <b>#{msg.key}</b>.</p>
-                        
+
                         <p>#{msg.description}</p>
-                        
+
                         <p>Condition was first detected at <b>#{msg.triggered_at}</b>.</p>
-                        
+
                         <p>Condition was last seen at <b>#{msg.last_seen_at}</b>.</p>
                         """
-                        
+
             @transport.sendMail email, (err,resp) =>
                 if err
                     @alerts.logger.error "Error sending all clear email: #{err}", error:err
                     return false
-                    
+
                 @alerts.logger.debug "All clear email sent to #{email.to}.", code:msg.code, key:msg.key
-            
+
     #----------
 
     class @PagerDuty
@@ -191,6 +199,8 @@ module.exports = class Alerts extends require("events").EventEmitter
         _sendAlert: (msg) ->
             details = @_details(msg)
 
+            @alerts.logger.debug "Sending alert to PagerDuty.", details:details
+
             @pager.create
                 description : "[StreamMachine/#{msg.key}] #{msg.code} Alert"
                 details     : details
@@ -198,6 +208,8 @@ module.exports = class Alerts extends require("events").EventEmitter
                 callback: (error, response) =>
                     if response.incident_key
                         @incidentKeys[details.key] = response.incident_key
+                    else
+                        @alerts.logger.error "PagerDuty response did not include an incident key.", response:response, error:error
 
                     @_logResponse error, response,
                         "Alert sent to PagerDuty.", msg
@@ -211,17 +223,21 @@ module.exports = class Alerts extends require("events").EventEmitter
         _sendAllClear: (msg) ->
             details = @_details(msg)
 
-            @pager.resolve
-                incidentKey : @incidentKeys[details.key],
-                description : "[StreamMachine/#{msg.key}] #{msg.code} Cleared"
-                details     : details
+            @alerts.logger.debug "Sending allClear to PagerDuty.", details:details
 
-                callback: (error, response) =>
-                    delete @incidentKeys[details.key]
+            if @incidentKeys[details.key]
+                @pager.resolve
+                    incidentKey : @incidentKeys[details.key],
+                    description : "[StreamMachine/#{msg.key}] #{msg.code} Cleared"
+                    details     : details
 
-                    @_logResponse error, response,
-                        "Alert marked as Resolved in PagerDuty.", msg
+                    callback: (error, response) =>
+                        delete @incidentKeys[details.key]
 
+                        @_logResponse error, response,
+                            "Alert marked as Resolved in PagerDuty.", msg
+            else
+                @alerts.logger.error "Could not send allClear to PagerDuty. No incident key in system.", keys:@incidentKeys
 
         #----------
 

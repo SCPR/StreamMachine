@@ -1,38 +1,59 @@
-express = require "express"
-_u = require("underscore")
-util = require 'util'
-fs = require 'fs'
-path = require 'path'
-nconf = require 'nconf'
+express = require 'express'
+_       = require 'underscore'
+util    = require 'util'
+fs      = require 'fs'
+path    = require 'path'
+uuid    = require 'node-uuid'
+http    = require "http"
+compression = require "compression"
+cors    = require "cors"
 
 module.exports = class Server extends require('events').EventEmitter
-    DefaultOptions:
-        core:           null
-        slave_mode:     false
-        mount_admin:    true
-    
-    constructor: (opts) ->
-        @opts = _u.defaults opts||{}, @DefaultOptions
-        
-        @core = @opts.core
+    constructor: (@opts) ->
+
+        @core   = @opts.core
         @logger = @opts.logger
-        
-        # -- socket server -- #
-        
-        @sockets = new Server.Sockets @, @logger.child(mode:"sockets")
-        
+        @config = @opts.config
+
         # -- set up our express app -- #
-        
+
         @app = express()
+        @_server = http.createServer @app
+
+        if @opts.config.cors?.enabled
+            origin = @opts.config.cors.origin || true
+
+            @app.use cors(origin:origin, methods:"GET,HEAD")
+
         @app.httpAllowHalfOpen = true
         @app.useChunkedEncodingByDefault = false
-        
-        # -- Shoutcast emulation -- #
-        
-        @_ua_skip = if nconf.get("ua_skip") then ///#{nconf.get("ua_skip").join("|")}/// else null
-        
+
+        @app.set "x-powered-by", "StreamMachine"
+
+        # -- are we behind a proxy? -- #
+
+        if @config.behind_proxy
+            @logger.info "Enabling 'trust proxy' for Express.js"
+            @app.set "trust proxy", true
+
+        # -- Set up sessions -- #
+
+        if @config.session?.secret && @config.session?.key
+            @app.use express.cookieParser()
+            @app.use express.cookieSession
+                key:    @config.session?.key
+                secret: @config.session?.secret
+
+            @app.use (req,res,next) =>
+                if !req.session.userID
+                    req.session.userID = uuid.v4()
+
+                req.user_id = req.session.userID
+
+                next()
+
         # -- Stream Finder -- #
-        
+
         @app.param "stream", (req,res,next,key) =>
             # make sure it's a valid stream key
             if key? && s = @core.streams[ key ]
@@ -40,31 +61,74 @@ module.exports = class Server extends require('events').EventEmitter
                 next()
             else
                 res.status(404).end "Invalid stream.\n"
-                                    
-        #@server.use (req,res,next) => @streamRouter(req,res,next)
-        
+
+        # -- Stream Group Finder -- #
+
+        @app.param "group", (req,res,next,key) =>
+            # make sure it's a valid stream key
+            if key? && s = @core.stream_groups[ key ]
+                req.group = s
+                next()
+            else
+                res.status(404).end "Invalid stream group.\n"
+
         # -- Funky URL Rewriters -- #
-        
+
         @app.use (req,res,next) =>
             if @core.root_route
                 if req.url == '/' || req.url == "/;stream.nsv" || req.url == "/;"
                     req.url = "/#{@core.root_route}"
                     next()
                 else if req.url == "/listen.pls"
-                    console.log "Converting /listen.pls to /#{@core.root_route}.pls"
                     req.url = "/#{@core.root_route}.pls"
                     next()
                 else
                     next()
             else
                 next()
-        
+
+        # -- HLS Full Index Test -- #
+
+        if @config.hls?.limit_full_index
+            idx_match = ///#{@config.hls.limit_full_index}///
+            @app.use (req,res,next) =>
+                ua = _.compact([req.param("ua"),req.headers?['user-agent']]).join(" | ")
+
+                if idx_match.test(ua)
+                    # do nothing...
+                else
+                    req.hls_limit = true
+
+                next()
+
+        # -- Debug Logger -- #
+
+        if @config.debug_incoming_requests
+            @app.use (req,res,next) =>
+                @logger.debug "Request: #{req.url}", ip:req.ip, ua:req.headers?['user-agent']
+                next()
+
+        # -- check user agent for banned clients -- #
+
+        if @config.ua_skip
+            banned = ///#{@config.ua_skip.join("|")}///
+
+            @app.use (req,res,next) =>
+                return next() unless req.headers?['user-agent'] && banned.test(req.headers["user-agent"])
+
+                # request from banned agent...
+                @logger.debug "Request from banned User-Agent: #{req.headers['user-agent']}",
+                    ip:     req.ip
+                    url:    req.url
+
+                res.status(403).end("Invalid User Agent.")
+
         # -- Utility Routes -- #
-        
+
         @app.get "/index.html", (req,res) =>
             res.set "content-type", "text/html"
             res.set "connection", "close"
-            
+
             res.status(200).end """
                 <html>
                     <head><title>StreamMachine</title></head>
@@ -73,11 +137,11 @@ module.exports = class Server extends require('events').EventEmitter
                     </body>
                 </html>
             """
-                    
+
         @app.get "/crossdomain.xml", (req,res) =>
             res.set "content-type", "text/xml"
             res.set "connection", "close"
-            
+
             res.status(200).end """
                 <?xml version="1.0"?>
                 <!DOCTYPE cross-domain-policy SYSTEM "http://www.macromedia.com/xml/dtds/cross-domain-policy.dtd">
@@ -86,50 +150,43 @@ module.exports = class Server extends require('events').EventEmitter
                 </cross-domain-policy>
             """
         # -- Stream Routes -- #
-        
+
         # playlist file
         @app.get "/:stream.pls", (req,res) =>
-            res.set "X-Powered-By", "StreamMachine"
             res.set "content-type", "audio/x-scpls"
             res.set "connection", "close"
 
             host = req.headers?.host || req.stream.options.host
-        
+
             res.status(200).end "[playlist]\nNumberOfEntries=1\nFile1=http://#{host}/#{req.stream.key}/\n"
-        
-        # head request    
+
+        # -- HTTP Live Streaming -- #
+
+        @app.get "/sg/:group.m3u8", (req,res) =>
+            new @core.Outputs.live_streaming.GroupIndex req.group, req:req, res:res
+
+        @app.get "/:stream.m3u8", compression(filter:->true), (req,res) =>
+            new @core.Outputs.live_streaming.Index req.stream, req:req, res:res
+
+        @app.get "/:stream/ts/:seg.(:format)", (req,res) =>
+            new @core.Outputs.live_streaming req.stream, req:req, res:res, format:req.param("format")
+
+
+        # head request
         @app.head "/:stream", (req,res) =>
-            res.set "content-type", "audio/mpeg"            
+            res.set "content-type", "audio/mpeg"
             res.status(200).end()
 
         # listen to the stream
         @app.get "/:stream", (req,res) =>
             res.set "X-Powered-By", "StreamMachine"
-            
-            # -- check user agent -- #
-            
-            if @_ua_skip && req.headers?['user-agent'] && @_ua_skip.test(req.headers["user-agent"])
-                # Shoutcast servers had a special handling for user agents that 
-                # contained the string "Mozilla". It gave them an HTTP status 
-                # page instead of the audio content.  One exception: if the 
-                # requested path contained a ";", it gave the audio.
-                @logger.debug "Request from banned User-Agent: #{req.headers['user-agent']}", 
-                    ip:     req.connection.remoteAddress
-                    url:    req.url
-                    
-                res.status(200).end("Invalid User Agent.")
-                return false
-            
+
             # -- Stream match! -- #
-        
-            if req.param("socket")
-                # socket listener
-                @sockets.registerListener req.param("socket"), req.stream, req:req, res:res
-                
-            else if req.param("pump")
+
+            if req.param("pump")
                 # pump listener pushes from the buffer as fast as possible
                 new @core.Outputs.pumper req.stream, req:req, res:res
-                
+
             else
                 # normal live stream (with or without shoutcast)
                 if req.headers['icy-metadata']
@@ -138,105 +195,25 @@ module.exports = class Server extends require('events').EventEmitter
                 else
                     # -- straight mp3 listener -- #
                     new @core.Outputs.raw req.stream, req:req, res:res
-    
+
     #----------
-    
+
     listen: (port,cb) ->
-        console.log "Start listening"
+        @logger.info "SlaveWorker called listen"
         @hserver = @app.listen port, =>
-            @io = require("socket.io").listen @hserver
-            @emit "io_connected", @io
+            #@io = require("socket.io").listen @hserver
+            #@emit "io_connected", @io
             cb?(@hserver)
         @hserver
-        
+
     #----------
-        
+
     close: ->
-        console.log "stopListening"
-        @hserver?.close => console.log "listening stopped."
-        
+        @logger.info "Slave server asked to stop listening."
+        @hserver?.close => @logger.info "Slave server listening stopped."
+
     #----------
-    
-    class @Sockets extends require("events").EventEmitter
-        constructor: (@server,@logger) ->
-            @sessions = {}
-            
-            @server.on "io_connected", (@io) =>
-                @logger.debug "Got IO_connected event."
-                @_configureStreams @server.core.streams
-                
-                @server.core.on "streams", (streams) => @_configureStreams(streams)
-        
-        #----------
-        
-        registerListener: (sock_id,stream,opts) ->
-            # make sure it's a valid socket
-            if sock = @sessions[ sock_id ]
-                if sock.stream == stream
-                    # good to go...
-                    sock.listener = new @server.core.Outputs.raw stream, opts
-                    @logger.debug "Got socket listener for #{ sock_id }"
-                else
-                    
-            else
-        
-        #----------
-                
-        _configureStreams: (streams) ->
-            @_listen(k,s) for k,s of streams
-            
-        _listen: (key,stream) ->
-            @logger.debug "Registering listener on /#{key}"
-            @io.of("/#{key}").on "connection", (sock) =>
-                console.log "connection is ", sock.id
-                console.log "stream is #{key}"
-        
-                @sessions[sock.id] ||= {
-                    id:         sock.id
-                    stream:     stream
-                    socket:     sock
-                    listener:   null
-                    offset:     1
-                }
-        
-                sess = @sessions[sock.id]
-                
-                # send ready signal
-                sock.emit "ready",
-                    time:       new Date
-                    buffered:   stream.bufferedSecs()
-                    
-                @sessions[sock.id].timecheck = setInterval =>
-                    sock.emit "timecheck",
-                        time:       new Date
-                        buffered:   stream.bufferedSecs()
-                , 5000
-                
-                # -- Handle offset requests -- #
-                
-                # add offset listener
-                sock.on "offset", (i,fn) =>
-                    @logger.debug "Offset request with #{i}"
-                    
-                    # this might be called with a stream connection active, 
-                    # or it might not.  we have to check
-                    if sess.listener
-                        playHead = sess.listener.source.setOffset(i)
-                        sess.offset = playHead
-                    else
-                        # just set it on the socket.  we'll use it when they connect
-                        sess.offset = sess.stream.checkOffset i
-                
-                    secs = sess.offset / sess.stream._rsecsPerChunk
-                    @logger.debug offset:sess.offset, "Offset by #{secs} seconds"
-                    
-                    fn? secs
-                
-                # -- Handle disconnect -- #
-                
-                sock.on "disconnect", =>
-                    console.log "disconnected socket."
-                    clearInterval @sessions[sock.id].timecheck
-                    delete @sessions[sock.id]
-    
-        
+
+    handle: (conn) ->
+        @_server.emit "connection", conn
+        conn.resume()

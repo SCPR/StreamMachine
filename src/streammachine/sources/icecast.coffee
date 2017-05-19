@@ -1,139 +1,76 @@
-_u = require "underscore"
+module.exports = class IcecastSource extends require("./base")
+    TYPE: -> "Icecast (#{[@opts.source_ip,@opts.sock.remotePort].join(":")})"
+    HANDOFF_TYPE: "icecast"
 
-module.exports = class IcecastSource extends require("./base")    
-    TYPE: -> "Icecast (#{[@sock.remoteAddress,@sock.remotePort].join(":")})"
-    
-    constructor: (@stream,@sock,@headers,@uuid) ->
-        super()
-        
-        @emitDuration  = 0.5
-        
-        # -- Alert if data stops flowing -- #
-        
-        # creates a sort of dead mans switch that we use to kill the connection 
-        # if it stops sending data
-        @_pingData = _u.debounce => 
-            # data has stopped flowing. kill the connection.
-            @log.info "Source data stopped flowing.  Killing connection."
-            @disconnect()
-            
-        , 30*1000
-    
-        # data is going to start streaming in as data on req. We need to pipe 
+    # opts should include:
+    # format:   Format for Parser (aac or mp3)
+    # sock:     Socket for incoming data
+    # headers:  Headers from the source request
+    # uuid:     Source UUID, if this is a handoff source (optional)
+    # logger:   Logger (optional)
+    constructor: (@opts) ->
+        super useHeartbeat:true
+
+        @_shouldHandoff = true
+
+        # data is going to start streaming in as data on req. We need to pipe
         # it into a parser to turn it into frames, headers, etc
-        
-        @log.debug "New Icecast source."
-        
-        @parser = @_new_parser()
-                
-        @_chunk_queue = []
-        @_chunk_queue_ts = null
-        
-        @last_header = null
-        
+
+        @log?.debug "New Icecast source."
+
+        @_vtimeout = setTimeout =>
+            @log?.error "Failed to get source vitals before timeout. Forcing disconnect."
+            @disconnect()
+        , 3000
+
+        @once "vitals", =>
+            @log?.debug "Vitals parsed for source."
+            clearTimeout @_vtimeout
+            @_vtimeout = null
+
         # incoming -> Parser
-        @sock.pipe @parser
-                
+        @opts.sock.pipe @parser
+
+        @last_ts = null
+
         # outgoing -> Stream
-        @parser.on "frame", (frame) =>
-            @_pingData()
-            @emit "frame", frame
+        @on "_chunk", (chunk) ->
+            @last_ts = chunk.ts
+            @emit "data", chunk
 
-            # -- queue up frames until we get to @emitDuration -- #
-            if @last_header
-                # -- recombine frame and header -- #
-                
-                fbuf = new Buffer( @last_header.length + frame.length )
-                @last_header.copy(fbuf,0)
-                frame.copy(fbuf,@last_header.length)
-                @_chunk_queue.push fbuf
-                
-                if !@_chunk_queue_ts
-                    @_chunk_queue_ts = (new Date)
-                
-                if @framesPerSec && ( @_chunk_queue.length / @framesPerSec > @emitDuration )
-                    len = 0
-                    len += b.length for b in @_chunk_queue
-                
-                    # make this into one buffer
-                    buf = new Buffer(len)
-                    pos = 0
-                
-                    for fb in @_chunk_queue
-                        fb.copy(buf,pos)
-                        pos += fb.length
-                        
-                    buf_ts = @_chunk_queue_ts
-                    
-                    duration = (@_chunk_queue.length / @framesPerSec)
-                    
-                    # reset chunk array
-                    @_chunk_queue.length = 0
-                    @_chunk_queue_ts = (new Date)
-                
-                    # emit new buffer
-                    @emit "data", 
-                        data:       buf 
-                        ts:         buf_ts
-                        duration:   duration
-                        streamKey:  @streamKey
-        
-        # we need to grab one frame to compute framesPerSec
-        @parser.on "header", (data,header) =>
-            if !@framesPerSec || !@streamKey
-                
-                # -- compute frames per second and stream key -- #
-                
-                if @stream.opts.format == 'mp3'
-                    @framesPerSec = header.samplingRateHz / header.samplesPerFrame                    
-                    @streamKey = ['mp3',header.samplingRateHz,header.bitrateKBPS,(if header.modeName in ["Stereo","J-Stereo"] then "s" else "m")].join("-")
-                
-                else if @stream.opts.format == 'aac'
-                    # each AAC frame is 1024 samples
-                    @framesPerSec = header.sample_freq * 1000 / 1024
-                    @streamKey = ['aac',header.sample_freq,header.profile,header.channels].join("-")
-                    
-                @log.debug "setting framesPerSec to ", frames:@framesPerSec
-                @log.debug "first header is ", header
-                
-                # -- send out our stream vitals -- #    
+        @opts.sock.on "close", =>
+            @log?.debug "Icecast source got close event"
+            @disconnect()
 
-                @_setVitals
-                    streamKey:          @streamKey
-                    framesPerSec:       @framesPerSec
-                    emitDuration:       @emitDuration
-                
-            @last_header = data
-            @emit "header", data, header            
-        
-        @sock.on "close", =>
-            @connected = false
-            @log.debug "Icecast source got close event"
-            @emit "disconnect"
-            @sock.end()
-            
-        @sock.on "end", =>
-            @connected = false
-            @log.debug "Icecast source got end event"
-            # source has gone away
-            @emit "disconnect"
-            @sock.end()
-        
+        @opts.sock.on "end", =>
+            @log?.debug "Icecast source got end event"
+            @disconnect()
+
         # return with success
         @connected = true
-    
+
     #----------
-    
-    info: ->
-        source:     @TYPE?() ? @TYPE
-        connected:  @connected
-        url:        [@sock.remoteAddress,@sock.remotePort].join(":")
-        streamKey:  @streamKey
-        uuid:       @uuid
-    
+
+    status: ->
+        source:         @TYPE?() ? @TYPE
+        connected:      @connected
+        url:            [@opts.source_ip,@opts.sock.remotePort].join(":")
+        streamKey:      @streamKey
+        uuid:           @uuid
+        last_ts:        @last_ts
+        connected_at:   @connectedAt
+
     #----------
-    
+
     disconnect: ->
-        @sock.end()
-        @connected = false
-        @emit "disconnect"
+        if @connected
+            super
+
+            clearTimeout @_vtimeout if @_vtimeout
+
+            @opts.sock.destroy()
+            @opts.sock.removeAllListeners()
+            @connected = false
+            @emit "disconnect"
+
+            @removeAllListeners()
