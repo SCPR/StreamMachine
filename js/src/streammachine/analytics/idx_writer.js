@@ -36,7 +36,7 @@ module.exports = IdxWriter = (function(_super) {
       return function(err, resp) {
         var err_str;
         if (err) {
-          err_str = "Failed to bulk insert: " + err;
+          err_str = "Failed to bulk insert " + batch.length + " rows: " + err;
           _this.log.error(err_str);
           debug(err_str);
           return cb(new Error(err_str));

@@ -38,7 +38,7 @@ module.exports = Analytics = (function() {
     debug("Connecting to ES at " + es_uri + ", prefix " + this.idx_prefix);
     this.es = new elasticsearch.Client({
       host: es_uri,
-      apiVersion: "1.4",
+      apiVersion: this.opts.config.es_api_version || "1.4",
       requestTimeout: this.opts.config.request_timeout || 30000
     });
     this.idx_batch = new BatchedQueue({

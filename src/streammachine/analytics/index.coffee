@@ -40,9 +40,9 @@ module.exports = class Analytics
 
         @es = new elasticsearch.Client
             host:           es_uri
-            apiVersion:     "1.4"
+            apiVersion:     @opts.config.es_api_version || "1.4"
             requestTimeout: @opts.config.request_timeout || 30000
-            #log: "trace"
+        #log: "trace"
 
         @idx_batch  = new BatchedQueue
             batch:      @opts.config.index_batch
@@ -66,7 +66,7 @@ module.exports = class Analytics
                 console.error err
                 cb? err
             else
-                # do something...
+# do something...
                 debug "Hitting cb after loading templates"
                 cb? null, @
 
@@ -84,7 +84,7 @@ module.exports = class Analytics
             @log.info "Analytics setting up Redis session sweeper"
 
             setInterval =>
-                # look for sessions that should be written (score less than now)
+# look for sessions that should be written (score less than now)
                 @redis.zrangebyscore "session-timeouts", 0, Math.floor( Number(new Date) / 1000), (err,sessions) =>
                     return @log.error "Error fetching sessions to finalize: #{err}" if err
 
@@ -97,7 +97,7 @@ module.exports = class Analytics
 
             , 5*1000
 
-    #----------
+#----------
 
     _loadTemplates: (cb) ->
         errors = []
@@ -120,9 +120,9 @@ module.exports = class Analytics
                 errors.push err if err
                 _loaded()
 
-    #----------
+#----------
 
-    #----------
+#----------
 
     _log: (obj,cb) ->
         session_id = null
@@ -151,10 +151,10 @@ module.exports = class Analytics
 
                     cb? null
 
-                    # -- start tracking the session -- #
+# -- start tracking the session -- #
 
                 when "listen"
-                    # do we know of other duration for this session?
+# do we know of other duration for this session?
                     @_getStashedDurationFor obj.client.session_id, obj.duration, (err,dur) =>
                         @idx_batch.write index:idx[0], type:"listen", body:
                             session_id:         obj.client.session_id
@@ -173,13 +173,13 @@ module.exports = class Analytics
 
             @_updateSessionTimerFor obj.client.session_id, (err) =>
 
-    #----------
+#----------
 
-    # Given a session id and duration, add the given duration to any
-    # existing cached duration and return the accumulated number
+# Given a session id and duration, add the given duration to any
+# existing cached duration and return the accumulated number
     _getStashedDurationFor: (session,duration,cb) ->
         if @redis
-            # use redis stash
+# use redis stash
             key = "duration-#{session}"
             @redis.incrby key, Math.round(duration), (err,res) =>
                 cb err, res
@@ -189,21 +189,21 @@ module.exports = class Analytics
                 @log.error "Failed to set Redis TTL for #{key}: #{err}" if err
 
         else
-            # use memory stash
+# use memory stash
             s = @_ensureMemorySession session
             s.duration += duration
             cb null, s.duration
 
-    #----------
+#----------
 
     _updateSessionTimerFor: (session,cb) ->
         if @_timeout_sec <= 0
-            # timeouts are disabled
+# timeouts are disabled
             return cb null
 
         if @redis
-            # this will set the score, or update it if the session is
-            # already in the set
+# this will set the score, or update it if the session is
+# already in the set
             timeout_at = (Number(new Date) / 1000) + @_timeout_sec
 
             @redis.zadd "session-timeouts", timeout_at, session, (err) =>
@@ -220,7 +220,7 @@ module.exports = class Analytics
 
             cb null
 
-    #----------
+#----------
 
     _scrubSessionFor: (session,cb) ->
         if @redis
@@ -231,20 +231,20 @@ module.exports = class Analytics
                     cb err
 
         else
-           s = @_ensureMemorySession session
-           clearTimeout s.timeout if s.timeout
-           delete @sessions[session]
+            s = @_ensureMemorySession session
+            clearTimeout s.timeout if s.timeout
+            delete @sessions[session]
 
-           cb null
+            cb null
 
 
-    #----------
+#----------
 
     _ensureMemorySession: (session) ->
         @sessions[ session ] ||=
             duration:0, last_seen_at:Number(new Date()), timeout:null
 
-    #----------
+#----------
 
     _triggerSession: (session) ->
         @_scrubSessionFor session, (err) =>
@@ -257,7 +257,7 @@ module.exports = class Analytics
                     @_storeSession obj, (err) =>
                         @log.error "Error writing session: #{err}" if err
 
-    #----------
+#----------
 
     _finalizeSession: (id,cb) ->
         @log.silly "Finalizing session for #{ id }"
@@ -292,7 +292,7 @@ module.exports = class Analytics
                         return cb? err
 
                     if !totals
-                        # Session did not have any recorded listen events.  Toss it.
+# Session did not have any recorded listen events.  Toss it.
                         return cb null, false
 
                     # -- build session -- #
@@ -310,19 +310,19 @@ module.exports = class Analytics
 
                     cb null, session
 
-    #----------
+#----------
 
     _storeSession: (session,cb) ->
-        # write one index per day of data
+# write one index per day of data
         index_date = tz(session.time,"%F")
 
         @es.index index:"#{@idx_prefix}-sessions-#{index_date}", type:"session", body:session, (err) =>
             cb err
 
-    #----------
+#----------
 
     _selectSessionStart: (id,cb) ->
-        # -- Look up user information from session_start -- #
+# -- Look up user information from session_start -- #
 
         body =
             query:
@@ -345,10 +345,10 @@ module.exports = class Analytics
                 else
                     cb null, null
 
-    #----------
+#----------
 
     _selectPreviousSession: (id,cb) ->
-        # -- Have we ever finalized this session id? -- #
+# -- Have we ever finalized this session id? -- #
 
         body =
             query:
@@ -370,10 +370,10 @@ module.exports = class Analytics
                 else
                     cb null, new Date(res.hits.hits[0]._source.time)
 
-    #----------
+#----------
 
     _selectListenTotals: (id,ts,cb) ->
-        # -- Query total duration and kbytes sent -- #
+# -- Query total duration and kbytes sent -- #
 
         filter =
             if ts
@@ -383,7 +383,7 @@ module.exports = class Analytics
                         { term:{session_id:id} }
                     ]
             else
-               term:{session_id:id}
+                term:{session_id:id}
 
         body =
             query:
@@ -410,7 +410,7 @@ module.exports = class Analytics
                 else
                     cb null, null
 
-    #----------
+#----------
 
     _indicesForTimeRange: (idx,start,end,cb) ->
         if _.isFunction(end)
@@ -435,10 +435,10 @@ module.exports = class Analytics
         indices.unshift "#{@idx_prefix}-#{idx}-#{ @local(start,"%F") }"
         cb null, _.uniq(indices)
 
-    #----------
+#----------
 
     countListeners: (cb) ->
-        # -- Query recent listeners -- #
+# -- Query recent listeners -- #
 
         body =
             query:
@@ -494,4 +494,4 @@ module.exports = class Analytics
                 @a._log meta
                 cb?()
 
-    #----------
+#----------

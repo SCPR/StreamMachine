@@ -15,7 +15,7 @@ module.exports = class IdxWriter extends require("stream").Writable
 
         @es.bulk body:bulk, (err,resp) =>
             if err
-                err_str = "Failed to bulk insert: #{err}"
+                err_str = "Failed to bulk insert #{batch.length} rows: #{err}"
                 @log.error err_str
                 debug err_str
                 return cb new Error(err_str)
